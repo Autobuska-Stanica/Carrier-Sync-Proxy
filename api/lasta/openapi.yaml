@@ -1,0 +1,443 @@
+openapi: 3.0.3
+info:
+  title: Lasta Express Partner API
+  description: API стороннего перевозчика Lasta Express для поиска рейсов, временной блокировки и подтверждения бронирования билетов.
+  version: 1.0.0
+servers:
+  - url: https://partner-api.lasta-express.rs/api/v1
+    description: Production API Server
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /schedules/search:
+    get:
+      summary: Поиск рейсов и свободных мест
+      operationId: searchSchedules
+      parameters:
+        - name: from_station_id
+          in: query
+          required: true
+          description: Код станции отправления
+          schema:
+            type: string
+            example: "RS-NVS"
+        - name: to_station_id
+          in: query
+          required: true
+          description: Код станции назначения
+          schema:
+            type: string
+            example: "RS-NIS"
+        - name: date
+          in: query
+          required: true
+          description: Дата поездки (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+            example: "2026-10-15"
+        - name: passengers_count
+          in: query
+          required: false
+          description: Количество мест
+          schema:
+            type: integer
+            default: 1
+            example: 1
+      responses:
+        '200':
+          description: Успешный поиск рейсов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+
+  /reservations/hold:
+    post:
+      summary: Временная блокировка места (Hold Seat)
+      operationId: holdSeat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HoldRequest'
+      responses:
+        '201':
+          description: Место успешно заблокировано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoldResponse'
+        '409':
+          description: Место уже занято
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+              example:
+                error_code: "SEAT_ALREADY_RESERVED"
+                message: "Seat 14 on trip TRIP-20261015-0830-NS-NI is no longer available"
+                timestamp: "2026-10-15T08:30:12Z"
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+
+  /reservations/confirm:
+    post:
+      summary: Подтверждение и выкуп билета
+      operationId: confirmBooking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmRequest'
+      responses:
+        '200':
+          description: Билет успешно подтвержден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfirmResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+
+  /health:
+    get:
+      summary: Health Check
+      operationId: checkHealth
+      security: []
+      responses:
+        '200':
+          description: Статус доступности системы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Carrier-Api-Key
+
+  responses:
+    TooManyRequests:
+      description: Превышен RPS лимит
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+          example:
+            error_code: "RATE_LIMIT_EXCEEDED"
+            message: "Rate limit exceeded. Maximum 20 requests per second allowed."
+            timestamp: "2026-10-15T08:30:00Z"
+    InternalServerError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+          example:
+            error_code: "INTERNAL_SERVER_ERROR"
+            message: "Database connection failed"
+            timestamp: "2026-10-15T08:30:00Z"
+    ServiceUnavailable:
+      description: Сервис недоступен или на обслуживании
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+          example:
+            error_code: "SYSTEM_MAINTENANCE"
+            message: "Service temporarily unavailable due to maintenance"
+            timestamp: "2026-10-15T08:30:00Z"
+    GatewayTimeout:
+      description: Превышено время ожидания
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+          example:
+            error_code: "UPSTREAM_TIMEOUT"
+            message: "Upstream system did not respond in time"
+            timestamp: "2026-10-15T08:30:00Z"
+
+  schemas:
+    Price:
+      type: object
+      required:
+        - amount
+        - currency
+      properties:
+        amount:
+          type: number
+          format: double
+          example: 2450.00
+        currency:
+          type: string
+          example: "RSD"
+
+    IntermediateStop:
+      type: object
+      required:
+        - station_id
+        - station_name
+        - arrival_time
+        - departure_time
+      properties:
+        station_id:
+          type: string
+          example: "RS-IND"
+        station_name:
+          type: string
+          example: "Inđija"
+        arrival_time:
+          type: string
+          format: date-time
+          example: "2026-10-15T09:05:00+02:00"
+        departure_time:
+          type: string
+          format: date-time
+          example: "2026-10-15T09:10:00+02:00"
+
+    Trip:
+      type: object
+      required:
+        - trip_id
+        - route_number
+        - origin_station_id
+        - destination_station_id
+        - departure_time
+        - arrival_time
+        - available_seats_count
+        - seat_numbers
+        - price
+      properties:
+        trip_id:
+          type: string
+          example: "TRIP-20261015-0830-NS-NI"
+        route_number:
+          type: string
+          example: "104-EXPRESS"
+        origin_station_id:
+          type: string
+          example: "RS-NVS"
+        destination_station_id:
+          type: string
+          example: "RS-NIS"
+        departure_time:
+          type: string
+          format: date-time
+          example: "2026-10-15T08:30:00+02:00"
+        arrival_time:
+          type: string
+          format: date-time
+          example: "2026-10-15T12:45:00+02:00"
+        available_seats_count:
+          type: integer
+          example: 14
+        seat_numbers:
+          type: array
+          items:
+            type: integer
+          example: [12, 13, 14, 15, 22, 23, 24, 25, 31, 32, 33, 40, 41, 42]
+        price:
+          $ref: '#/components/schemas/Price'
+        intermediate_stops:
+          type: array
+          items:
+            $ref: '#/components/schemas/IntermediateStop'
+
+    SearchResponse:
+      type: object
+      required:
+        - search_id
+        - carrier_code
+        - trips
+      properties:
+        search_id:
+          type: string
+          example: "sch_search_98f12a4c"
+        carrier_code:
+          type: string
+          example: "LASTA"
+        trips:
+          type: array
+          items:
+            $ref: '#/components/schemas/Trip'
+
+    Passenger:
+      type: object
+      required:
+        - first_name
+        - last_name
+        - document_number
+      properties:
+        first_name:
+          type: string
+          example: "Marko"
+        last_name:
+          type: string
+          example: "Petrović"
+        document_number:
+          type: string
+          example: "009812341"
+
+    HoldRequest:
+      type: object
+      required:
+        - trip_id
+        - from_station_id
+        - to_station_id
+        - seat_number
+        - passenger
+        - ttl_seconds
+      properties:
+        trip_id:
+          type: string
+          example: "TRIP-20261015-0830-NS-NI"
+        from_station_id:
+          type: string
+          example: "RS-NVS"
+        to_station_id:
+          type: string
+          example: "RS-NIS"
+        seat_number:
+          type: integer
+          example: 14
+        passenger:
+          $ref: '#/components/schemas/Passenger'
+        ttl_seconds:
+          type: integer
+          example: 600
+
+    HoldResponse:
+      type: object
+      required:
+        - hold_id
+        - status
+        - trip_id
+        - seat_number
+        - expires_at
+        - total_price
+      properties:
+        hold_id:
+          type: string
+          example: "hld_771a29bc-4a11-4081"
+        status:
+          type: string
+          example: "HELD"
+        trip_id:
+          type: string
+          example: "TRIP-20261015-0830-NS-NI"
+        seat_number:
+          type: integer
+          example: 14
+        expires_at:
+          type: string
+          format: date-time
+          example: "2026-10-15T08:40:00+02:00"
+        total_price:
+          $ref: '#/components/schemas/Price'
+
+    ConfirmRequest:
+      type: object
+      required:
+        - hold_id
+        - payment_reference
+        - issue_station_ticket
+      properties:
+        hold_id:
+          type: string
+          example: "hld_771a29bc-4a11-4081"
+        payment_reference:
+          type: string
+          example: "pay_autobuska_stanica_998123"
+        issue_station_ticket:
+          type: boolean
+          example: true
+
+    ConfirmResponse:
+      type: object
+      required:
+        - ticket_id
+        - hold_id
+        - status
+        - qr_code_payload
+        - issued_at
+      properties:
+        ticket_id:
+          type: string
+          example: "TKT-LASTA-2026-9901823"
+        hold_id:
+          type: string
+          example: "hld_771a29bc-4a11-4081"
+        status:
+          type: string
+          example: "CONFIRMED"
+        qr_code_payload:
+          type: string
+          example: "LASTA:TKT-LASTA-2026-9901823:RS-NVS:RS-NIS:SEAT-14"
+        issued_at:
+          type: string
+          format: date-time
+          example: "2026-10-15T08:31:05+02:00"
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - database
+        - legacy_core
+      properties:
+        status:
+          type: string
+          example: "UP"
+        database:
+          type: string
+          example: "CONNECTED"
+        legacy_core:
+          type: string
+          example: "DEGRADED"
+
+    APIError:
+      type: object
+      required:
+        - error_code
+        - message
+        - timestamp
+      properties:
+        error_code:
+          type: string
+          example: "SEAT_ALREADY_RESERVED"
+        message:
+          type: string
+          example: "Seat 14 on trip TRIP-20261015-0830-NS-NI is no longer available"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-10-15T08:30:12Z"
